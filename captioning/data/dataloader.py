@@ -112,6 +112,21 @@ class Dataset(data.Dataset):
             self.ix_to_word = self.info['dict_index_to_word']
             self.vocab_size = len(self.ix_to_word)
             print('vocab size is ', self.vocab_size)
+
+        if 'dict_index_to_concept' in self.info:
+            self.ix_to_concept = self.info['dict_index_to_concept']
+            self.concept_size = len(self.ix_to_concept)
+            print('concept size is ', self.concept_size)
+
+        if 'list_concept_base' in self.info:
+            self.concept_base = self.info['list_concept_base']
+            self.concept_base_size = len(self.concept_base)
+            print('base concept size is ', self.concept_base_size)
+
+        if 'list_concept_novel' in self.info:
+            self.concept_novel = self.info['list_concept_novel']
+            self.concept_novel_size = len(self.concept_novel)
+            print('novel concept size is ', self.concept_novel_size)
         
         # open the hdf5 file
         print('DataLoader loading h5 file: ', opt.input_fc_dir, opt.input_att_dir, opt.input_box_dir, opt.input_label_h5)
@@ -140,25 +155,38 @@ class Dataset(data.Dataset):
         self.num_images = len(self.info['list_images']) # self.label_start_ix.shape[0]
         print('read %d image features' %(self.num_images))
 
+        self.dict_index_concept_to_list_index_image_support = self.info['dict_index_concept_to_list_index_image_support']
+        self.dict_index_concept_to_list_index_image_test = self.info['dict_index_concept_to_list_index_image_test']
+
         # separate out indexes for each of the provided splits
-        self.split_ix = {'train': [], 'val': [], 'test': []}
+        self.split_ix = {'base_train': [], 'base_val': [], 'base_test': [], 'support': [], 'test': []}
         for ix in range(len(self.info['list_images'])):
             img = self.info['list_images'][ix]
             if not 'split' in img:
-                self.split_ix['train'].append(ix)
-                self.split_ix['val'].append(ix)
-                self.split_ix['test'].append(ix)
-            elif img['split'] == 'train':
-                self.split_ix['train'].append(ix)
-            elif img['split'] == 'val':
-                self.split_ix['val'].append(ix)
-            elif img['split'] == 'test':
-                self.split_ix['test'].append(ix)
+                self.split_ix['base_train'].append(ix)
+                self.split_ix['base_val'].append(ix)
+                self.split_ix['base_test'].append(ix)
+            elif img['split'] == 'base_train':
+                self.split_ix['base_train'].append(ix)
+            elif img['split'] == 'base_val':
+                self.split_ix['base_val'].append(ix)
+            elif img['split'] == 'base_test':
+                self.split_ix['base_test'].append(ix)
             elif opt.train_only == 0: # restval
-                self.split_ix['train'].append(ix)
+                self.split_ix['base_train'].append(ix)
 
-        print('assigned %d images to split train' %len(self.split_ix['train']))
-        print('assigned %d images to split val' %len(self.split_ix['val']))
+        for ix_concept, ix_images in self.dict_index_concept_to_list_index_image_support.item():
+            for ix in ix_images:
+                self.split_ix['support'].append({'ix_concept': int(ix_concept), 'ix_image': ix})
+
+        for ix_concept, ix_images in self.dict_index_concept_to_list_index_image_test.item():
+            for ix in ix_images:
+                self.split_ix['test'].append({'ix_concept': int(ix_concept), 'ix_image': ix})
+
+        print('assigned %d images to split base_train' %len(self.split_ix['base_train']))
+        print('assigned %d images to split base_val' %len(self.split_ix['base_val']))
+        print('assigned %d images to split base_test' %len(self.split_ix['base_test']))
+        print('assigned %d images to split support' %len(self.split_ix['support']))
         print('assigned %d images to split test' %len(self.split_ix['test']))
 
     def get_captions(self, ix, seq_per_img):
@@ -310,8 +338,8 @@ class DataLoader:
 
         # Initialize loaders and iters
         self.loaders, self.iters = {}, {}
-        for split in ['train', 'val', 'test']:
-            if split == 'train':
+        for split in ['base_train', 'base_val', 'base_test']:
+            if split == 'base_train':
                 sampler = MySampler(self.dataset.split_ix[split], shuffle=True, wrap=True)
             else:
                 sampler = MySampler(self.dataset.split_ix[split], shuffle=False, wrap=False)

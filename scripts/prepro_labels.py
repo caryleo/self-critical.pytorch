@@ -363,11 +363,12 @@ def process_images():
         # 从这个set中抽取5000个样本给BaseVal、5000个样本给BaseTest，剩下的给BaseTrain
         list_index_image_base = list(set_index_image_base)
 
-        coco = COCO(dict_parameters['input_coco'])
-        list_id_val = coco.getImgIds()
+        # coco = COCO(dict_parameters['input_coco'])
+        # list_id_val = coco.getImgIds()
 
-        list_index_image_base_ready = [index_image for index_image in list_index_image_base if
-                                       list_images[index_image]['cocoid'] in list_id_val]
+        # list_index_image_base_ready = [index_image for index_image in list_index_image_base if
+        #                                list_images[index_image]['cocoid'] in list_id_val]
+        list_index_image_base_ready = copy.deepcopy(list_index_image_base)
         random.shuffle(list_index_image_base_ready)
 
         list_index_image_base_val = list_index_image_base[: 5000]

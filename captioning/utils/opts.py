@@ -253,7 +253,7 @@ def parse_opt():
     assert args.train_only == 0 or args.train_only == 1, "language_eval should be 0 or 1"
 
     # default value for start_from and checkpoint_path
-    args.checkpoint_path = args.checkpoint_path or '.logs/%s' % args.id
+    args.checkpoint_path = args.checkpoint_path or './logs/%s' % args.id
     args.start_from = args.start_from or args.checkpoint_path
 
     # Deal with feature things before anything
@@ -297,8 +297,8 @@ def add_eval_options(parser):
                     help='path to the h5file containing the preprocessed dataset')
     parser.add_argument('--input_json', type=str, default='', 
                     help='path to the json file containing additional info and vocab. empty = fetch from model checkpoint.')
-    parser.add_argument('--split', type=str, default='test', 
-                    help='if running on MSCOCO images, which split to use: val|test|train')
+    parser.add_argument('--split', type=str, default='base_test',
+                    help='if running on MSCOCO images, which split to use: base_val|base_test|base_train|support|test')
     parser.add_argument('--coco_json', type=str, default='', 
                     help='if nonempty then use this file in DataLoaderRaw (see docs there). Used only in MSCOCO test evaluation, where we have a specific json file of only test set images.')
     # misc
