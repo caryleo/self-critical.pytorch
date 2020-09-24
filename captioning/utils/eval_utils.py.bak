@@ -36,10 +36,9 @@ def count_bad(sen):
         return 0
 
 
-def getCOCO(dataset, kwargs):
+def getCOCO(dataset):
     if 'coco' in dataset:
-        # annFile = 'coco-caption/annotations/captions_val2014.json'
-        annFile = kwargs['input_coco_json']
+        annFile = 'coco-caption/annotations/captions_val2014.json'
     elif 'flickr30k' in dataset or 'f30k' in dataset:
         annFile = 'data/f30k_captions4eval.json'
     return COCO(annFile)
@@ -72,7 +71,7 @@ def language_eval(dataset, preds, preds_n, eval_kwargs, split):
 
     cache_path = os.path.join('eval_results/', '.cache_'+ model_id + '_' + split + '.json')
 
-    coco = getCOCO(dataset, eval_kwargs)
+    coco = getCOCO(dataset)
     valids = coco.getImgIds()
 
     # filter results to only those in MSCOCO validation set

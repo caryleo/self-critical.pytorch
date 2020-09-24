@@ -28,8 +28,6 @@ def parse_opt():
                     help='path to the directory containing the boxes of att feats')
     parser.add_argument('--input_label_h5', type=str, default='data/coco_label.h5',
                     help='path to the h5file containing the preprocessed dataset')
-    parser.add_argument('--input_coco_json', type=str, default='coco-caption/annotations/captions_val2014.json')
-
     parser.add_argument('--data_in_memory', action='store_true',
                     help='True if we want to save the features in memory')
     parser.add_argument('--start_from', type=str, default=None,
@@ -253,7 +251,7 @@ def parse_opt():
     assert args.train_only == 0 or args.train_only == 1, "language_eval should be 0 or 1"
 
     # default value for start_from and checkpoint_path
-    args.checkpoint_path = args.checkpoint_path or '.logs/%s' % args.id
+    args.checkpoint_path = args.checkpoint_path or './log_%s' %args.id
     args.start_from = args.start_from or args.checkpoint_path
 
     # Deal with feature things before anything
