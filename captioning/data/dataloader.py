@@ -175,11 +175,11 @@ class Dataset(data.Dataset):
             elif opt.train_only == 0: # restval
                 self.split_ix['base_train'].append(ix)
 
-        for ix_concept, ix_images in self.dict_index_concept_to_list_index_image_support.item():
+        for ix_concept, ix_images in self.dict_index_concept_to_list_index_image_support.items():
             for ix in ix_images:
                 self.split_ix['support'].append({'ix_concept': int(ix_concept), 'ix_image': ix})
 
-        for ix_concept, ix_images in self.dict_index_concept_to_list_index_image_test.item():
+        for ix_concept, ix_images in self.dict_index_concept_to_list_index_image_test.items():
             for ix in ix_images:
                 self.split_ix['test'].append({'ix_concept': int(ix_concept), 'ix_image': ix})
 
@@ -211,6 +211,8 @@ class Dataset(data.Dataset):
     def collate_func(self, batch, split):
         seq_per_img = self.seq_per_img
 
+        concept_batch = []
+
         fc_batch = []
         att_batch = []
         label_batch = []
@@ -222,10 +224,12 @@ class Dataset(data.Dataset):
 
         for sample in batch:
             # fetch image
-            tmp_fc, tmp_att, tmp_seq, \
-                ix, it_pos_now, tmp_wrapped = sample
+            tmp_ix_concept, tmp_fc, tmp_att, tmp_seq, ix, it_pos_now, tmp_wrapped = sample
+
             if tmp_wrapped:
                 wrapped = True
+
+            concept_batch.append(tmp_ix_concept)
 
             fc_batch.append(tmp_fc)
             att_batch.append(tmp_att)
@@ -253,9 +257,13 @@ class Dataset(data.Dataset):
         # #sort by att_feat length
         # fc_batch, att_batch, label_batch, gts, infos = \
         #     zip(*sorted(zip(fc_batch, att_batch, np.vsplit(label_batch, batch_size), gts, infos), key=lambda x: len(x[1]), reverse=True))
-        fc_batch, att_batch, label_batch, gts, infos = \
-            zip(*sorted(zip(fc_batch, att_batch, label_batch, gts, infos), key=lambda x: 0, reverse=True))
+        concept_batch, fc_batch, att_batch, label_batch, gts, infos = \
+            zip(*sorted(zip(concept_batch, fc_batch, att_batch, label_batch, gts, infos), key=lambda x: 0, reverse=True))
+
         data = {}
+
+        data['concepts'] = np.stack(concept_batch)
+
         data['fc_feats'] = np.stack(fc_batch)
         # merge att_feats
         max_att_len = max([_.shape[0] for _ in att_batch])
@@ -291,7 +299,7 @@ class Dataset(data.Dataset):
     def __getitem__(self, index):
         """This function returns a tuple that is further passed to collate_fn
         """
-        ix, it_pos_now, wrapped = index #self.split_ix[index]
+        ix_concept, ix, it_pos_now, wrapped = index #self.split_ix[index]
         if self.use_att:
             att_feat = self.att_loader.get(str(self.info['list_images'][ix]['image_id']))
             # Reshape to K x C
@@ -323,8 +331,9 @@ class Dataset(data.Dataset):
             seq = self.get_captions(ix, self.seq_per_img)
         else:
             seq = None
-        return (fc_feat,
-                att_feat, seq,
+
+        return (ix_concept,
+                fc_feat, att_feat, seq,
                 ix, it_pos_now, wrapped)
 
     def __len__(self):
@@ -338,11 +347,16 @@ class DataLoader:
 
         # Initialize loaders and iters
         self.loaders, self.iters = {}, {}
-        for split in ['base_train', 'base_val', 'base_test']:
+        for split in ['base_train', 'base_val', 'base_test', 'support', 'test']:
             if split == 'base_train':
                 sampler = MySampler(self.dataset.split_ix[split], shuffle=True, wrap=True)
+            elif split == 'support':
+                sampler = MySampler(self.dataset.split_ix[split], shuffle=True, wrap=True, dual=True)
+            elif split == 'test':
+                sampler = MySampler(self.dataset.split_ix[split], shuffle=False, wrap=False, dual=True)
             else:
                 sampler = MySampler(self.dataset.split_ix[split], shuffle=False, wrap=False)
+
             self.loaders[split] = data.DataLoader(dataset=self.dataset,
                                                   batch_size=self.batch_size,
                                                   sampler=sampler,
@@ -350,6 +364,7 @@ class DataLoader:
                                                   num_workers=4, # 4 is usually enough
                                                   collate_fn=lambda x: self.dataset.collate_func(x, split),
                                                   drop_last=False)
+
             self.iters[split] = iter(self.loaders[split])
 
     def get_batch(self, split):
@@ -398,10 +413,11 @@ class DataLoader:
 
 
 class MySampler(data.sampler.Sampler):
-    def __init__(self, index_list, shuffle, wrap):
+    def __init__(self, index_list, shuffle, wrap, dual=False):
         self.index_list = index_list
         self.shuffle = shuffle
         self.wrap = wrap
+        self.dual = dual
         # if wrap, there will be not stop iteration called
         # wrap True used during training, and wrap False used during test.
         self._reset_iter()
@@ -419,7 +435,12 @@ class MySampler(data.sampler.Sampler):
                 raise StopIteration()
         if len(self._index_list) == 0: # overflow when 0 samples
             return None
-        elem = (self._index_list[self.iter_counter], self.iter_counter+1, wrapped)
+
+        if self.dual:
+            elem = (self._index_list[self.iter_counter]['ix_concept'], self._index_list[self.iter_counter]['ix_image'], self.iter_counter+1, wrapped)
+        else:
+            elem = (None, self._index_list[self.iter_counter], self.iter_counter+1, wrapped)
+
         self.iter_counter += 1
         return elem
 

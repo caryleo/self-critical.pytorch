@@ -1,9 +1,9 @@
 # base
 caption_model: updown
-input_json: data/label/label_coco_random_fewshot_30shot.json
+input_json: data/label/label_coco_fewshot_20way_10shot.json
 input_att_dir: data/feature_coco_updown_att
-input_label_h5: data/label/label_coco_random_fewshot_30shot.h5
-input_coco_json: data/label/label_coco_random_fewshot_30shot_ref.json
+input_label_h5: data/label/label_coco_fewshot_20way_10shot.h5
+input_coco_json: data/label/label_coco_fewshot_20way_10shot_ref.json
 
 learning_rate: 0.0005
 scheduled_sampling_start: 0
