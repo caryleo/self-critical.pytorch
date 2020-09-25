@@ -262,7 +262,7 @@ class Dataset(data.Dataset):
 
         data = {}
 
-        data['concepts'] = np.stack(concept_batch)
+        data['concepts'] = concept_batch
 
         data['fc_feats'] = np.stack(fc_batch)
         # merge att_feats
