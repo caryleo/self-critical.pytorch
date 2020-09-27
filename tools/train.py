@@ -32,22 +32,23 @@ def add_summary_value(writer, key, value, iteration):
 def train(opt):
 
     ################################
-    # Build dataloader
+    # 创建dataloader
     ################################
     loader = DataLoader(opt)
     opt.vocab_size = loader.vocab_size
     opt.seq_length = loader.seq_length
 
     ##########################
-    # Initialize infos
+    # 初始化训练信息
     ##########################
     infos = {
         'iter': 0,
         'epoch': 0,
         'loader_state_dict': None,
         'vocab': loader.get_vocab(),
+        'stage': 1
     }
-    # Load old infos(if there is) and check if models are compatible
+
     if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, 'infos_'+opt.id+'.pkl')):
         with open(os.path.join(opt.start_from, 'infos_'+opt.id+'.pkl'), 'rb') as f:
             infos = utils.pickle_load(f)
@@ -58,9 +59,9 @@ def train(opt):
     infos['opt'] = opt
 
     #########################
-    # Build logger
+    # 创建logger
     #########################
-    # naive dict logger
+    # 文件logger
     histories = defaultdict(dict)
     if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, 'histories_'+opt.id+'.pkl')):
         with open(os.path.join(opt.start_from, 'histories_'+opt.id+'.pkl'), 'rb') as f:
@@ -70,25 +71,26 @@ def train(opt):
     tb_summary_writer = SummaryWriter(opt.checkpoint_path)
 
     ##########################
-    # Build model
+    # 创建模型
     ##########################
     opt.vocab = loader.get_vocab()
     model = models.setup(opt).cuda()
     del opt.vocab
-    # Load pretrained weights:
+
     if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, 'model.pth')):
         model.load_state_dict(torch.load(os.path.join(opt.start_from, 'model.pth')))
     
-    # Wrap generation model with loss function(used for training)
-    # This allows loss function computed separately on each machine
+    # 作者注：面向模型的loss封装，便于将loss计算独立，便于多卡时减小No.0 GPU的负载
     lw_model = LossWrapper(model, opt)
-    # Wrap with dataparallel
+    # 多GPU封装
     dp_model = torch.nn.DataParallel(model)
-    dp_model.vocab = getattr(model, 'vocab', None)  # nasty
+    dp_model.vocab = getattr(model, 'vocab', None)
     dp_lw_model = torch.nn.DataParallel(lw_model)
 
+    model.set_stage(infos['stage'])
+
     ##########################
-    #  Build optimizer
+    #  创建优化器
     ##########################
     if opt.noamopt:
         assert opt.caption_model in ['transformer', 'bert', 'm2transformer'], 'noamopt can only work with transformer'
@@ -100,30 +102,35 @@ def train(opt):
                                             patience=opt.reduce_on_plateau_patience)
     else:
         optimizer = utils.build_optimizer(model.parameters(), opt)
-    # Load the optimizer
+
     if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from,"optimizer.pth")):
         optimizer.load_state_dict(torch.load(os.path.join(opt.start_from, 'optimizer.pth')))
 
     #########################
-    # Get ready to start
+    # 训练
     #########################
+
+    # 准备阶段
     iteration = infos['iter']
     epoch = infos['epoch']
-    # For back compatibility
-    if 'iterators' in infos:
-        infos['loader_state_dict'] = {split: {'index_list': infos['split_ix'][split], 'iter_counter': infos['iterators'][split]} for split in ['base_train', 'base_val', 'base_test']}
+    # 作者注：向后兼容需要
+    # if 'iterators' in infos:
+    #     infos['loader_state_dict'] = {
+    #         split: {'index_list': infos['split_ix'][split],
+    #                 'iter_counter': infos['iterators'][split]}
+    #         for split in ['base_train', 'base_val', 'base_test']}
     loader.load_state_dict(infos['loader_state_dict'])
     if opt.load_best_score == 1:
         best_val_score = infos.get('best_val_score', None)
     if opt.noamopt:
         optimizer._step = iteration
-    # flag indicating finish of an epoch
-    # Always set to True at the beginning to initialize the lr or etc.
+
+    # 作者注：轮次完成标志量，用于新轮次可能的训练参数调整
     epoch_done = True
-    # Assure in training mode
+
     dp_lw_model.train()
 
-    # Start training
+    # 开始训练啦！
     try:
         while True:
             # Stop if reaching max epochs

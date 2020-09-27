@@ -10,12 +10,11 @@
         2. 指令部分根据输入和输出的修改进行了调整
         3. 将随机种子作为参数可以选择（因为不同的实现用的随机种子不一样）
         4. 构建词汇表、lemma表、concept表等映射表
-        5. 根据PASCAL的20个categories，确定基本得novel concepts
-        6. 提取所有catpion的concept信息，分为两个版本，默认版本区分单复数，不管复数形式；full版本不区分单复数，对编码为原型词对应的索引
+        5. 根据way参数，随机抽取指定个数的concept作为novel concepts
+        6. 提取所有image包含的caption中出现的concept情况，记录每个image样本的concept表（目前区分单复数，不记录出现次数和位置）
         7. 除了词汇编码，还要有对位的concept编码，所有编码索引统一从1开始，0表示特殊含义
-        8. FPAIT的数据划分实现被保留
-        9. 新增内容写入文件
-        10. 数据集的划分
+        8. 数据集的划分，严格遵循划分原则
+        9. 将所有新增的信息和映射表写入到文件中
 """
 
 from __future__ import absolute_import
@@ -36,13 +35,9 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
-sys.path.append("coco-caption")
-from pycocotools.coco import COCO
-from pycocoevalcap.eval import COCOEvalCap
-
 # PASCAL的20个categories
-list_category_novel = ["person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "boat", "bird", "cat",
-                       "dog", "horse", "sheep", "cow", "bottle", "chair", "couch", "potted plant", "dining table", "tv"]
+# list_category_novel = ["person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "boat", "bird", "cat",
+#                        "dog", "horse", "sheep", "cow", "bottle", "chair", "couch", "potted plant", "dining table", "tv"]
 
 
 def get_parameters():
@@ -55,13 +50,12 @@ def get_parameters():
     新增实现：
         1. 读入dic_coco.json，来自NBT实现
         2. 指定随机种子
-        3. 指定单类最小数据量（构造episode时考虑，不满足类别归入BASE）
-        4. 指定base集中训练集的数据比例
-        5. 指定novel集中训练集的数据比例（由数据比例却决定类别比例）
+        3. 指定单类最小数据量
+        4. 指定novel concept个数
+        5. 指定重新构造的reference json的输出位置
         6. 指定处理模式（普通模式、Few-shot模式）
-        7. 指定novel类别选取方法，默认只选择PASCAL中20个category对应的concept词，superclass模式选择这20个category覆盖的所有concept词
     """
-    print("parsing arguments")
+    print('Label Preprocess:', "parsing arguments")
 
     parser = argparse.ArgumentParser()
     # 文件路径
@@ -98,10 +92,10 @@ def get_parameters():
     args = parser.parse_args()
     dict_parameters_ = vars(args)
 
-    print('parsed input parameters:')
+    print('Label Preprocess:', 'parsed input parameters:')
     print(json.dumps(dict_parameters_, indent=2))
 
-    print("setting seed: {:d}".format(dict_parameters_['seed']))
+    print('Label Preprocess:', "setting seed: {:d}".format(dict_parameters_['seed']))
     random.seed(dict_parameters_['seed'])
     np.random.seed(dict_parameters_['seed'])
 
@@ -115,14 +109,14 @@ def read_files():
     新增实现：
         1. 读入dic_coco.json，来自NBT实现
     """
-    print("reading files")
+    print('Label Preprocess:', "reading files")
 
     # 读取dataset_coco.json，获取样本信息列表images
-    print("reading file: {}".format(dict_parameters['input_json']))
+    print('Label Preprocess:', "reading file: {}".format(dict_parameters['input_json']))
     file_dataset_coco_ = json.load(open(dict_parameters['input_json'], 'r'))
 
     # 读取dic_coco.json，获取wtol和wtod
-    print("reading file: {}".format(dict_parameters['input_dic']))
+    print('Label Preprocess:', "reading file: {}".format(dict_parameters['input_dic']))
     file_dic_coco_ = json.load(open(dict_parameters['input_dic'], 'r'))
 
     return file_dataset_coco_, file_dic_coco_
@@ -135,11 +129,8 @@ def build_dictionaries():
     新增实现：
         1. 从dic_coco.json中读取目标词和lemma词
         2. 包括词汇表在内的所有索引表都已dict形式输出
-        3. 记录当前image包含的concept编号列表，多次出现不重复录入，如果当前caption出现了novel concept，则不放入base类别中
-        4. 记录当前image包含的concept编号列表，不区分单复数，多次出现不重复录入，如果当前caption出现了novel concept，则不放入base类别中
-        5. 为保证一致性，原始concept对照表不调整，在base和novel里面不包含短语
     """
-    print("building maps from vocabulary, categories and concepts into indices")
+    print('Label Preprocess:', "building maps from vocabulary, categories and concepts into indices")
 
     # 计算caption样本中的词频
     list_images_ = file_dataset_coco['images']
@@ -165,7 +156,7 @@ def build_dictionaries():
 
     if num_words_rare > 0:
         # 存在极低频词，对这些词进行替换
-        print('rare words detected, inserting the special UNK token')
+        print('Label Preprocess:', 'rare words detected, inserting the special UNK token')
         list_words_vocabulary.append('UNK')
 
     size_words_total = len(dict_word_to_count) + 1 if num_words_rare > 0 else len(dict_word_to_count)
@@ -183,53 +174,11 @@ def build_dictionaries():
             dict_word_to_lemma_.pop(word)
 
     # 去掉罕见的concept（一般不会有），同时去掉莫名其妙的首尾空格
-    dict_concept_to_category = {concept.strip(): category for concept, category in file_dic_coco['wtod'].items() if
-                                concept.strip() not in list_words_rare}
+    dict_concept_to_category = {concept.strip(): category for concept, category in file_dic_coco['wtod'].items() if concept.strip() not in list_words_rare}
     # 构造concept词表，从1索引，0表示非视觉目标词
     dict_concept_to_index_ = {concept: index + 1 for index, concept in enumerate(dict_concept_to_category.keys())}
-    # 构造一个category到concepts的映射表，用于确定novel classes，这一步不能过滤短语，否则有些novel class会被漏掉
-    dict_index_category_to_concept = dict()
-    # set_index_category_novel = set()  # 发现当前concept属于novel，记录对应的category（实际上这个concept就是category）
-    # for concept, index_category in dict_concept_to_category.items():
-    #     if index_category not in dict_index_category_to_concept:
-    #         dict_index_category_to_concept[index_category] = [concept]
-    #         if concept in list_category_novel:
-    #             set_index_category_novel.add(index_category)
-    #     else:
-    #         dict_index_category_to_concept[index_category].append(concept)
-    #         if concept in list_category_novel:
-    #             set_index_category_novel.add(index_category)
 
-    # list_concept = [key for key in dict_concept_to_index_.keys() if ' ' not in key]  # 去掉短语
-    # num_concept_novel = len(list_concept) // 10  # 取十分之一的类别为novel类别
-    # random.shuffle(list_concept)
-    # list_concept_novel_ = list_concept[: num_concept_novel]
-    # list_concept_base_ = list_concept[num_concept_novel: ]
-    # print("Novel Concept:", list_concept_novel_)
-
-    # 确定novel concept
-    # list_concept_base_ = list()
-    # list_concept_novel_ = list()
-    # 只用20个大类，注意短语全部忽略
-    # if dict_parameters['superclass']:
-    #     # 只使用superclass，只包含20个大类，需要过滤掉所有的短语
-    #     list_concept_novel_ = [category for category in list_category_novel if ' ' not in category]
-    #     for concept in dict_concept_to_index_.keys():
-    #         if concept not in list_concept_novel_ and ' ' not in concept:
-    #             list_concept_base_.append(concept)
-    # else:
-    #     # 使用20个category对应的全部concept，需要过滤掉所有的短语
-    #     for index_category in dict_index_category_to_concept.keys():
-    #         if index_category in set_index_category_novel:
-    #             list_concept_novel_.extend([concept for concept in dict_index_category_to_concept[index_category] if ' ' in concept])
-    #         else:
-    #             list_concept_base_.extend([concept for concept in dict_index_category_to_concept[index_category] if ' ' in concept])
-
-    # size_concepts = len(dict_concept_to_index_)
-    # size_concepts_base = len(list_concept_base_)
-    # size_concepts_novel = len(list_concept_novel_)
-
-    print("replacing rare words by UNK token")
+    print('Label Preprocess:', "replacing rare words by UNK token")
     for image in tqdm(list_images_):
         image['tokens_filtered'] = list()
 
@@ -239,22 +188,13 @@ def build_dictionaries():
             image['tokens_filtered'].append(list_tokens_filtered)
 
     print("----------------------------------------------------------------------------------------------")
-    print("summary about vocabulary:")
+    print("'Label Preprocess:', summary about vocabulary:")
     print(" - {:d} words in total".format(num_words_total))
-    # print(" - {:d} fine-grained concepts included".format(size_concepts))
-    # print(" - {:d} fine-grained concept words in base split ".format(size_concepts_base))
-    # print(" - {:d} fine-grained concept words in novel split ".format(size_concepts_novel))
-    print(" - {:d} / {:d} ({:.2%}) different words occur less than {:d} times, will be replaced by <UNK>".format(
-        size_words_rare, size_words_total, size_words_rare / size_words_total, threshold_word_count))
+    print(" - {:d} / {:d} ({:.2%}) different words occur less than {:d} times, will be replaced by <UNK>".format(size_words_rare, size_words_total, size_words_rare / size_words_total, threshold_word_count))
     if 'UNK' in list_words_vocabulary:
-        print(
-            " - {:d} / {:d} ({:.2%}) different words will be in vocabulary (UNK included)".format(size_words_vocabulary,
-                                                                                                  size_words_total,
-                                                                                                  size_words_vocabulary / size_words_total))
+        print(" - {:d} / {:d} ({:.2%}) different words will be in vocabulary (UNK included)".format(size_words_vocabulary, size_words_total, size_words_vocabulary / size_words_total))
     else:
-        print(" - {:d} / {:d} ({:.2%}) different words will be in vocabulary".format(size_words_vocabulary,
-                                                                                     size_words_total,
-                                                                                     size_words_vocabulary / size_words_total))
+        print(" - {:d} / {:d} ({:.2%}) different words will be in vocabulary".format(size_words_vocabulary, size_words_total, size_words_vocabulary / size_words_total))
     print("----------------------------------------------------------------------------------------------")
 
     return list_images_, dict_word_to_index_, dict_word_to_lemma_, dict_concept_to_index_
@@ -269,7 +209,7 @@ def process_images():
         4. 划分的修改结果返回到下一步处理
     """
     # 记录每个图像中所有caption出现的concept
-    print('collecting concepts for images')
+    print('Label Preprocess:', 'collecting concepts for images')
     for image in tqdm(list_images):
         set_index_concept = set()
         set_index_concept_full = set()
@@ -285,7 +225,7 @@ def process_images():
         image['list_index_concept_full'] = list(set_index_concept_full)
 
     # 预备动作：将所有的image按照类别进行划分，其中0为other类别
-    print("split images into concepts, class OTHER for images with no concept words")
+    print('Label Preprocess:', "split images into concepts, class OTHER for images with no concept words")
     dict_index_concept_to_index_image = defaultdict(list)
 
     for index_image in tqdm(range(len(list_images))):
@@ -301,23 +241,22 @@ def process_images():
     list_concept = [key
                     for key in dict_concept_to_index.keys()
                     if (' ' not in key)
-                    and (len(dict_index_concept_to_index_image[dict_concept_to_index[key]]) >= dict_parameters[
-            'shot'] * 2)]  # 去掉短语和少于两倍shot量的概念
+                    and (len(dict_index_concept_to_index_image[dict_concept_to_index[key]]) >= dict_parameters['shot'] * 2)]  # 去掉短语和少于两倍shot量的概念
 
     num_concept_novel = dict_parameters['way']
     random.shuffle(list_concept)
-    list_concept_novel = list_concept[: num_concept_novel]
-    list_concept_base = [key
-                         for key in dict_concept_to_index.keys()
-                         if (' ' not in key)
-                         and key not in list_concept_novel]
+    list_concept_novel_ = list_concept[: num_concept_novel]
+    list_concept_base_ = [key
+                          for key in dict_concept_to_index.keys()
+                          if (' ' not in key)
+                          and key not in list_concept_novel_]
 
-    print("{} novel concepts:".format(num_concept_novel), list_concept_novel)
+    print('Label Preprocess:', "{} novel concepts:".format(num_concept_novel), list_concept_novel_)
 
-    list_index_concept_base = [dict_concept_to_index[concept] for concept in list_concept_base]
-    list_index_concept_novel = [dict_concept_to_index[concept] for concept in list_concept_novel]
+    list_index_concept_base = [dict_concept_to_index[concept] for concept in list_concept_base_]
+    list_index_concept_novel = [dict_concept_to_index[concept] for concept in list_concept_novel_]
 
-    print("resplit images into concepts, class OTHER for images with no concept words")
+    print('Label Preprocess:', "resplit images into concepts, class OTHER for images with no concept words")
     dict_index_concept_to_index_image.clear()
     for index_image in tqdm(range(len(list_images))):
         image = list_images[index_image]
@@ -342,8 +281,7 @@ def process_images():
 
     # 数据划分，如果为origin模式，不动，否则进行划分
     if dict_parameters['mode'] == 'fewshot':
-        print(
-            "few-shot mode, split images into train (including val and test set for base training), support and test sets")
+        print('Label Preprocess:', "few-shot mode, split images into train (including val and test set for base training), support and test sets")
         # 备份一下novel的一会要删掉
         dict_index_concept_to_index_image_novel = defaultdict(list)
         for index_concept in list_index_concept_novel:
@@ -379,7 +317,7 @@ def process_images():
                                                index_image not in list_index_image_base_test)]
 
         # 按照Karpathy的方式，给这些图片标记split，对于那些分配到novel类别的样本，同一标记为finetune（实际会使用额外的数据结构）
-        print("split Base-Train, Base-Val and Base-Test sets")
+        print('Label Preprocess:', "split Base-Train, Base-Val and Base-Test sets")
         for index_image in tqdm(range(len(list_images))):
             image = list_images[index_image]
             if index_image in list_index_image_base_train:
@@ -433,21 +371,21 @@ def process_images():
                 for token in tokens:
                     dict_index_word_to_count_finetune[token] = dict_index_word_to_count_finetune.get(token, 0) + 1
 
-        print("BASE VOCABULARY: {}".format(len(dict_index_word_to_count_base)))
+        print('Label Preprocess:', "BASE VOCABULARY SIZE: {}".format(len(dict_index_word_to_count_base)))
 
-        print("NOVEL VOCABULARY: {}".format(len(dict_index_word_to_count_finetune)))
+        print('Label Preprocess:', "NOVEL VOCABULARY SIZE: {}".format(len(dict_index_word_to_count_finetune)))
 
         return \
             list_images, \
             dict_index_concept_to_list_index_image_support_, \
             dict_index_concept_to_list_index_image_test_, \
-            list_concept_base, \
-            list_concept_novel, \
+            list_concept_base_, \
+            list_concept_novel_, \
             len(set_index_image_support), \
             len(set_index_image_test)
 
     else:
-        print("origin mode, reuse Karpathy's split")
+        print('Label Preprocess:', "origin mode, reuse Karpathy's split")
         return list_images, None, None, None, None, None, None
 
 
@@ -457,11 +395,6 @@ def encode_captions():
         1. 编码captions到index vectors，构成一个矩阵，用0补齐
         2. 记录每一个image对应的编码向量的起始和结束索引位（处理的时候，每一张图像的所有caption都是连续处理的，所以不会出问题）
         3. 记录每一个caption的长度（我个人认为这个没啥用，生成mask相对快一些？）
-    新增实现：
-        1. 按照concept进行编码，默认版本不考虑复数词，full版本将复数词映射到原型词concept编码（每个image对应的list就是这么干的）
-        2. 转变成按照caption样本，建立caption到image的映射
-        3. 如果当前caption只包含一个concept，满足fewshot构造要求，加入到对应concept类别中（预留备用）
-        4. 按照当前任务的shot需求，过滤fewshot类别中含有caption过少的类别（预留备用）
     """
     print("encoding captions into vectors")
 
@@ -503,7 +436,7 @@ def encode_captions():
     assert label_.shape[0] == num_captions, 'lengths don\'t match? that\'s weird'
     assert np.all(label_length_ > 0), 'error: some caption had no words?'
 
-    print('encoded captions to array of size {}'.format(label_.shape))
+    print('Label Preprocess:', 'encoded captions to array of size {}'.format(label_.shape))
 
     return (
         label_,
@@ -521,12 +454,9 @@ def write_files():
         3. 将编码后的caption写入hdf5文件
         4. 将每个样本对应的区段索引以及各编码向量的实际长度写入hdf5文件
     新增实现：
-        1. 将concept表、lemma表、caption与image的对应表写入json文件
-        2. 将划分好的base和novel concept表写入json文件
-        3. 将划分好的concept类别表写入json文件
-        4. 将caption对应的image写入h5文件
-        5. 将每个caption对位的concept编码写入h5文件
-        6. 数据集的划分
+        1. 将concept表、lemma表、caption与image的映射表写入json文件
+        2. 将划分好的concept类别等信息写入到json文件
+        3. 将数据子集的划分信息写入到json文件
     """
     print("writing infos into files")
 
@@ -570,7 +500,7 @@ def write_files():
         file_json['list_images'].append(info_image)
 
     print("----------------------------------------------------------------------------------------------")
-    print('summary about split:')
+    print('Label Preprocess:', 'summary about split:')
     for key, value in dict_size_split.items():
         if key == 'finetune':
             print(" - split {} : {} images, {} images for support and {} images for test".format(key, value,
@@ -584,7 +514,7 @@ def write_files():
     json.dump(file_json, open(dict_parameters['output_json'], 'w'))
 
     if dict_parameters['mode'] == 'fewshot':
-        print("few-shot mode, creating new reference json file for COCO API")
+        print('Label Preprocess:', "few-shot mode, creating new reference json file for COCO API")
         # 搞定COCO API参考文件，将base-val和base-test对应地样本按照COCO API格式生成json文件用于读取
         file_coco = dict()
 
