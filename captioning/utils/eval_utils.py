@@ -132,7 +132,7 @@ def language_eval(dataset, preds, preds_n, eval_kwargs, split):
     return out
 
 
-def mention_eval(predictions, kwargs_eval, split):
+def mention_precision_eval(predictions, kwargs_eval, split):
     # 评估模式：按类评价、子集绝对匹配评价、汉明距离评价
     mention_eval_mode = kwargs_eval.get('mention_eval_mode', 'class')
 

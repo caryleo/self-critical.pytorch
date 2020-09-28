@@ -23,26 +23,29 @@ import torch
 parser = argparse.ArgumentParser()
 # Input paths
 parser.add_argument('--model', type=str, default='',
-                help='path to model to evaluate')
-parser.add_argument('--cnn_model', type=str,  default='resnet101',
-                help='resnet101, resnet152')
+                    help='path to model to evaluate')
+parser.add_argument('--cnn_model', type=str, default='resnet101',
+                    help='resnet101, resnet152')
 parser.add_argument('--infos_path', type=str, default='',
-                help='path to infos to evaluate')
+                    help='path to infos to evaluate')
 parser.add_argument('--only_lang_eval', type=int, default=0,
-                help='lang eval on saved results')
+                    help='lang eval on saved results')
+parser.add_argument('--only_mention_eval', type=int, default=0,
+                    help='mention eval on saved results')
 parser.add_argument('--force', type=int, default=0,
-                help='force to evaluate no matter if there are results available')
+                    help='force to evaluate no matter if there are results available')
 parser.add_argument('--device', type=str, default='cuda',
-                help='cpu or cuda')
+                    help='cpu or cuda')
+
 opts.add_eval_options(parser)
 opts.add_diversity_opts(parser)
 opt = parser.parse_args()
 
-# Load infos
+print('loading information from {}'.format(opt.infos_path))
 with open(opt.infos_path, 'rb') as f:
     infos = utils.pickle_load(f)
 
-# override and collect parameters
+# 需要将加载到的参数中一些必要的修改项（数据集在位置）进行调整
 replace = ['input_fc_dir', 'input_att_dir', 'input_box_dir', 'input_label_h5', 'input_json', 'batch_size', 'id']
 ignore = ['start_from']
 
@@ -51,20 +54,21 @@ for k in vars(infos['opt']).keys():
         setattr(opt, k, getattr(opt, k) or getattr(infos['opt'], k, ''))
     elif k not in ignore:
         if not k in vars(opt):
-            vars(opt).update({k: vars(infos['opt'])[k]}) # copy over options from model
+            vars(opt).update({k: vars(infos['opt'])[k]})  # copy over options from model
 
-vocab = infos['vocab'] # ix -> word mapping
+vocab = infos['vocab']  # ix -> word mapping
 
-pred_fn = os.path.join('eval_results/', '.saved_pred_'+ opt.id + '_' + opt.split + '.pth')
-result_fn = os.path.join('eval_results/', opt.id + '_' + opt.split + '.json')
+pred_fn = os.path.join('eval_results/', 'saved_pred_' + opt.id + '_' + opt.split + '.pth')
+language_fn = os.path.join('eval_results/', 'language_' + opt.id + '_' + opt.split + '.json')
+mention_fn = os.path.join('eval_results/', 'mention_' + opt.id + '_' + opt.split + '.json')
 
-if opt.only_lang_eval == 1 or (not opt.force and os.path.isfile(pred_fn)): 
-    # if results existed, then skip, unless force is on
+if opt.only_lang_eval == 1 or (not opt.force and os.path.isfile(pred_fn)):
+    # 预测结果已经存在，只需要考虑是否重新评估语言性能
     if not opt.force:
         try:
-            if os.path.isfile(result_fn):
-                print(result_fn)
-                json.load(open(result_fn, 'r'))
+            if os.path.isfile(language_fn):
+                print(language_fn)
+                json.load(open(language_fn, 'r'))
                 print('already evaluated')
                 os._exit(0)
         except:
@@ -75,51 +79,70 @@ if opt.only_lang_eval == 1 or (not opt.force and os.path.isfile(pred_fn)):
     print(lang_stats)
     os._exit(0)
 
-# At this point only_lang_eval if 0
+if opt.only_mention_eval == 1 or (not opt.force and os.path.isfile(pred_fn)):
+    # 预测结果已经存在，只需要考虑是否重新评估语言性能
+    if not opt.force:
+        try:
+            if os.path.isfile(mention_fn):
+                print(mention_fn)
+                json.load(open(mention_fn, 'r'))
+                print('already evaluated')
+                os._exit(0)
+        except:
+            pass
+
+    predictions, _ = torch.load(pred_fn)
+    mention_stats = eval_utils.mention_precision_eval(predictions, vars(opt), opt.split)
+    print(mention_stats)
+    os._exit(0)
+
 if not opt.force:
-    # Check out if 
+    # 非强制，如果已经有了评估结果，不再重新处理
     try:
-        # if no pred exists, then continue
         tmp = torch.load(pred_fn)
-        # if language_eval == 1, and no pred exists, then continue
         if opt.language_eval == 1:
-            json.load(open(result_fn, 'r'))
+            json.load(open(language_fn, 'r'))
+        if opt.mention_eval == 1:
+            json.load(open(mention_fn, 'r'))
         print('Result is already there')
         os._exit(0)
     except:
         pass
 
-# Setup the model
+# 默认模式，从头评估一遍
 opt.vocab = vocab
 model = models.setup(opt)
 del opt.vocab
+
 model.load_state_dict(torch.load(opt.model, map_location='cpu'))
 model.to(opt.device)
 model.eval()
+
 crit = losses.LanguageModelCriterion()
 
-# Create the Data Loader instance
-if len(opt.image_folder) == 0:
-    loader = DataLoader(opt)
-else:
-    loader = DataLoaderRaw({'folder_path': opt.image_folder, 
-                            'coco_json': opt.coco_json,
-                            'batch_size': opt.batch_size,
-                            'cnn_model': opt.cnn_model})
-# When eval using provided pretrained model, the vocab may be different from what you have in your cocotalk.json
-# So make sure to use the vocab in infos file.
+# # Create the Data Loader instance
+# if len(opt.image_folder) == 0:
+loader = DataLoader(opt)
+# else:
+#     loader = DataLoaderRaw({'folder_path': opt.image_folder,
+#                             'coco_json': opt.coco_json,
+#                             'batch_size': opt.batch_size,
+#                             'cnn_model': opt.cnn_model})
+
+# 作者注：使用预训练模型时，可能其词汇表和我们处理编码的json文件中的caption不一致，因此要替换成模型对应的词汇表
 loader.dataset.ix_to_word = infos['vocab']
 
-
-# Set sample options
 opt.dataset = opt.input_json
-loss, split_predictions, lang_stats = eval_utils.eval_split(model, crit, loader, 
-        vars(opt))
+loss, split_predictions, lang_stats, mention_stats = eval_utils.eval_split(model, crit, loader, vars(opt))
 
-print('loss: ', loss)
+print('loss:', loss)
 if lang_stats:
+    print('language statistics:')
     print(lang_stats)
 
+if mention_stats:
+    print('mention statistics:')
+    print(mention_stats)
+
 if opt.dump_json == 1:
-    # dump the json
     json.dump(split_predictions, open('vis/vis.json', 'w'))
