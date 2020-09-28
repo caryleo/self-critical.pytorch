@@ -62,8 +62,6 @@ class AttModel(CaptionModel):
         self.att_feat_size = opt.att_feat_size
         self.att_hid_size = opt.att_hid_size
 
-        self.stage = 1
-
         self.bos_idx = getattr(opt, 'bos_idx', 0)
         self.eos_idx = getattr(opt, 'eos_idx', 0)
         self.pad_idx = getattr(opt, 'pad_idx', 0)
@@ -96,10 +94,6 @@ class AttModel(CaptionModel):
         # For remove bad endding
         self.vocab = opt.vocab
         self.bad_endings_ix = [int(k) for k,v in self.vocab.items() if v in bad_endings]
-
-    def set_stage(self, stage):
-        self.stage = stage
-        print("Current Stage: {}".format('Base Training' if stage == 1 else 'Finetuning'))
 
     def init_hidden(self, bsz):
         weight = self.logit.weight \

@@ -151,20 +151,16 @@ class Dataset(data.Dataset):
         if 'list_concept_base' in self.info:
             self.concept_base = self.info['list_concept_base']
             self.concept_base_size = len(self.concept_base)
-            print('DataLoader:', 'base concept size is {}', self.concept_base_size)
+            print('DataLoader:', 'base concept size is {}'.format(self.concept_base_size))
 
         if 'list_concept_novel' in self.info:
             self.concept_novel = self.info['list_concept_novel']
             self.concept_novel_size = len(self.concept_novel)
-            print('DataLoader:', 'novel concept size is ', self.concept_novel_size)
+            print('DataLoader:', 'novel concept size is {}'.format(self.concept_novel_size))
 
         # open the hdf5 file
         print('DataLoader loading h5 file: ', opt.input_fc_dir, opt.input_att_dir, opt.input_box_dir, opt.input_label_h5)
 
-        """
-        Setting input_label_h5 to none is used when only doing generation.
-        For example, when you need to test on coco test set.
-        """
         # 作者注：有一些情况下我们没有GT的caption输入
         if self.opt.input_label_h5 != 'none':
             self.h5_label_file = h5py.File(self.opt.input_label_h5, 'r', driver='core')
@@ -172,7 +168,7 @@ class Dataset(data.Dataset):
             seq_size = self.h5_label_file['label'].shape
             self.label = self.h5_label_file['label'][:]
             self.seq_length = seq_size[1]
-            print('max sequence length in data is', self.seq_length)
+            print('Dataloader:', 'max sequence length in data is', self.seq_length)
             # load the pointers in full to RAM (should be small enough)
             self.label_start_ix = self.h5_label_file['label_start_index'][:]
             self.label_end_ix = self.h5_label_file['label_end_index'][:]
@@ -185,7 +181,7 @@ class Dataset(data.Dataset):
         self.box_loader = HybridLoader(self.opt.input_box_dir, '.npy', in_memory=self.data_in_memory)
 
         self.num_images = len(self.info['list_images'])
-        print('read {} image features'.format(self.num_images))
+        print('Dataloader:', 'read {} image features'.format(self.num_images))
 
         # 新增数据子集：支持集和测试机
         self.dict_index_concept_to_list_index_image_support = self.info['dict_index_concept_to_list_index_image_support']

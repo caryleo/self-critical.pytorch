@@ -73,8 +73,10 @@ def parse_opt():
                     help='If use box, do we normalize box feature')
 
     # Optimization: General
-    parser.add_argument('--max_epochs', type=int, default=-1,
-                    help='number of epochs')
+    parser.add_argument('--max_epochs_base', type=int, default=-1,
+                    help='number of epochs for base training')
+    parser.add_argument('--max_epochs_finetune', type=int, default=-1,
+                        help='number of epochs for finetune training')
     parser.add_argument('--batch_size', type=int, default=16,
                     help='minibatch size')
     parser.add_argument('--grad_clip_mode', type=str, default='value',

@@ -29,8 +29,8 @@ def add_summary_value(writer, key, value, iteration):
     if writer:
         writer.add_scalar(key, value, iteration)
 
-def train(opt):
 
+def train(opt):
     ################################
     # 创建dataloader
     ################################
@@ -49,11 +49,11 @@ def train(opt):
         'stage': 1
     }
 
-    if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, 'infos_'+opt.id+'.pkl')):
-        with open(os.path.join(opt.start_from, 'infos_'+opt.id+'.pkl'), 'rb') as f:
+    if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, 'infos_' + opt.id + '.pkl')):
+        with open(os.path.join(opt.start_from, 'infos_' + opt.id + '.pkl'), 'rb') as f:
             infos = utils.pickle_load(f)
             saved_model_opt = infos['opt']
-            need_be_same=["caption_model", "rnn_type", "rnn_size", "num_layers"]
+            need_be_same = ["caption_model", "rnn_type", "rnn_size", "num_layers"]
             for checkme in need_be_same:
                 assert getattr(saved_model_opt, checkme) == getattr(opt, checkme), "Command line argument and saved model disagree on '%s' " % checkme
     infos['opt'] = opt
@@ -63,8 +63,8 @@ def train(opt):
     #########################
     # 文件logger
     histories = defaultdict(dict)
-    if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, 'histories_'+opt.id+'.pkl')):
-        with open(os.path.join(opt.start_from, 'histories_'+opt.id+'.pkl'), 'rb') as f:
+    if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, 'histories_' + opt.id + '.pkl')):
+        with open(os.path.join(opt.start_from, 'histories_' + opt.id + '.pkl'), 'rb') as f:
             histories.update(utils.pickle_load(f))
 
     # tensorboard logger
@@ -79,7 +79,7 @@ def train(opt):
 
     if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, 'model.pth')):
         model.load_state_dict(torch.load(os.path.join(opt.start_from, 'model.pth')))
-    
+
     # 作者注：面向模型的loss封装，便于将loss计算独立，便于多卡时减小No.0 GPU的负载
     lw_model = LossWrapper(model, opt)
     # 多GPU封装
@@ -103,7 +103,7 @@ def train(opt):
     else:
         optimizer = utils.build_optimizer(model.parameters(), opt)
 
-    if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from,"optimizer.pth")):
+    if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, "optimizer.pth")):
         optimizer.load_state_dict(torch.load(os.path.join(opt.start_from, 'optimizer.pth')))
 
     #########################
@@ -113,7 +113,7 @@ def train(opt):
     # 准备阶段
     iteration = infos['iter']
     epoch = infos['epoch']
-    # 作者注：向后兼容需要
+    # 作者注：向后兼容需要，这部分没有用，删去
     # if 'iterators' in infos:
     #     infos['loader_state_dict'] = {
     #         split: {'index_list': infos['split_ix'][split],
@@ -127,169 +127,229 @@ def train(opt):
 
     # 作者注：轮次完成标志量，用于新轮次可能的训练参数调整
     epoch_done = True
+    eval_done = False
 
     dp_lw_model.train()
 
     # 开始训练啦！
-    try:
-        while True:
-            # Stop if reaching max epochs
-            if epoch >= opt.max_epochs and opt.max_epochs != -1:
-                break
-
-            if epoch_done:
-                if not opt.noamopt and not opt.reduce_on_plateau:
-                    # Assign the learning rate
-                    if epoch > opt.learning_rate_decay_start and opt.learning_rate_decay_start >= 0:
-                        frac = (epoch - opt.learning_rate_decay_start) // opt.learning_rate_decay_every
-                        decay_factor = opt.learning_rate_decay_rate  ** frac
-                        opt.current_lr = opt.learning_rate * decay_factor
+    if infos['stage'] == 1:
+        try:
+            while True:
+                # 达到最大epoch限制，跳出经典训练
+                if epoch >= opt.max_epochs_base != -1:
+                    if eval_done:
+                        break
                     else:
-                        opt.current_lr = opt.learning_rate
-                    utils.set_lr(optimizer, opt.current_lr) # set the decayed rate
-                # Assign the scheduled sampling prob
-                if epoch > opt.scheduled_sampling_start and opt.scheduled_sampling_start >= 0:
-                    frac = (epoch - opt.scheduled_sampling_start) // opt.scheduled_sampling_increase_every
-                    opt.ss_prob = min(opt.scheduled_sampling_increase_prob  * frac, opt.scheduled_sampling_max_prob)
-                    model.ss_prob = opt.ss_prob
+                        # 末尾再评估一次
+                        eval_kwargs = {'split': 'base_val', 'dataset': opt.input_json}
+                        eval_kwargs.update(vars(opt))
+                        val_loss, predictions, lang_stats = eval_utils.eval_split(dp_model, lw_model.crit, loader, eval_kwargs)
 
-                # If start self critical training
-                if opt.self_critical_after != -1 and epoch >= opt.self_critical_after:
-                    sc_flag = True
-                    init_scorer(opt.cached_tokens)
-                else:
-                    sc_flag = False
-                
-                # If start structure loss training
-                if opt.structure_after != -1 and epoch >= opt.structure_after:
-                    struc_flag = True
-                    init_scorer(opt.cached_tokens)
-                else:
-                    struc_flag = False
+                        if opt.reduce_on_plateau:
+                            if 'CIDEr' in lang_stats:
+                                optimizer.scheduler_step(-lang_stats['CIDEr'])
+                            else:
+                                optimizer.scheduler_step(val_loss)
 
-                epoch_done = False
-                    
-            start = time.time()
-            if opt.use_warmup and (iteration < opt.noamopt_warmup):
-                opt.current_lr = opt.learning_rate * (iteration+1) / opt.noamopt_warmup
-                utils.set_lr(optimizer, opt.current_lr)
-            # Load data from train split (0)
-            data = loader.get_batch('base_train')
-            # print('\r Read data:', time.time() - start, end="")
+                        # 将评估结果写入日志
+                        tb_summary_writer.add_scalar('validation loss', val_loss, iteration)
+                        if lang_stats is not None:
+                            for k, v in lang_stats.items():
+                                tb_summary_writer.add_scalar(k, v, iteration)
 
-            torch.cuda.synchronize()
-            start = time.time()
+                        histories['val_result_history'][iteration] = {'loss': val_loss, 'lang_stats': lang_stats, 'predictions': predictions}
 
-            tmp = [data['fc_feats'], data['att_feats'], data['labels'], data['masks'], data['att_masks']]
-            tmp = [_ if _ is None else _.cuda() for _ in tmp]
-            fc_feats, att_feats, labels, masks, att_masks = tmp
-            
-            optimizer.zero_grad()
-            model_out = dp_lw_model(fc_feats, att_feats, labels, masks, att_masks, data['gts'], torch.arange(0, len(data['gts'])), sc_flag, struc_flag)
+                        # 根据CIDEr指标选择最佳模型
+                        if opt.language_eval == 1:
+                            current_score = lang_stats['CIDEr']
+                        else:
+                            current_score = - val_loss
 
-            loss = model_out['loss'].mean()
+                        best_flag = False
 
-            loss.backward()
-            if opt.grad_clip_value != 0:
-                getattr(torch.nn.utils, 'clip_grad_%s_' %(opt.grad_clip_mode))(model.parameters(), opt.grad_clip_value)
-            optimizer.step()
-            train_loss = loss.item()
-            torch.cuda.synchronize()
-            end = time.time()
-            if struc_flag:
-                print("iter {} (epoch {}), train_loss = {:.3f}, lm_loss = {:.3f}, struc_loss = {:.3f}, time/batch = {:.3f}" \
-                    .format(iteration, epoch, train_loss, model_out['lm_loss'].mean().item(), model_out['struc_loss'].mean().item(), end - start))
-            elif not sc_flag:
-                print("iter {} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}" \
-                    .format(iteration, epoch, train_loss, end - start))
-            else:
-                print("iter {} (epoch {}), avg_reward = {:.3f}, time/batch = {:.3f}" \
-                    .format(iteration, epoch, model_out['reward'].mean(), end - start))
+                        if best_val_score is None or current_score > best_val_score:
+                            best_val_score = current_score
+                            best_flag = True
 
-            # Update the iteration and epoch
-            iteration += 1
-            if data['bounds']['wrapped']:
-                epoch += 1
-                epoch_done = True
+                        infos['best_val_score'] = best_val_score
 
-            # Write the training loss summary
-            if (iteration % opt.losses_log_every == 0):
-                tb_summary_writer.add_scalar('train_loss', train_loss, iteration)
-                if opt.noamopt:
-                    opt.current_lr = optimizer.rate()
-                elif opt.reduce_on_plateau:
-                    opt.current_lr = optimizer.current_lr
-                tb_summary_writer.add_scalar('learning_rate', opt.current_lr, iteration)
-                tb_summary_writer.add_scalar('scheduled_sampling_prob', model.ss_prob, iteration)
-                if sc_flag:
-                    tb_summary_writer.add_scalar('avg_reward', model_out['reward'].mean(), iteration)
-                elif struc_flag:
-                    tb_summary_writer.add_scalar('lm_loss', model_out['lm_loss'].mean().item(), iteration)
-                    tb_summary_writer.add_scalar('struc_loss', model_out['struc_loss'].mean().item(), iteration)
-                    tb_summary_writer.add_scalar('reward', model_out['reward'].mean().item(), iteration)
-                    tb_summary_writer.add_scalar('reward_var', model_out['reward'].var(1).mean(), iteration)
+                        utils.save_checkpoint(opt, model, infos, optimizer, histories)
 
-                histories['loss_history'][iteration] = train_loss if not sc_flag else model_out['reward'].mean()
-                histories['lr_history'][iteration] = opt.current_lr
-                histories['ss_prob_history'][iteration] = model.ss_prob
+                        if opt.save_history_ckpt:
+                            utils.save_checkpoint(opt, model, infos, optimizer, append=str(epoch) if opt.save_every_epoch else str(iteration))
 
-            # update infos
-            infos['iter'] = iteration
-            infos['epoch'] = epoch
-            infos['loader_state_dict'] = loader.state_dict()
-            
-            # make evaluation on validation set, and save model
-            if (iteration % opt.save_checkpoint_every == 0 and not opt.save_every_epoch) or \
-                (epoch_done and opt.save_every_epoch):
-                # eval model
-                print()
-                eval_kwargs = {'split': 'base_val',
-                                'dataset': opt.input_json}
-                eval_kwargs.update(vars(opt))
-                val_loss, predictions, lang_stats = eval_utils.eval_split(
-                    dp_model, lw_model.crit, loader, eval_kwargs)
+                        if best_flag:
+                            utils.save_checkpoint(opt, model, infos, optimizer, append='best')
 
-                if opt.reduce_on_plateau:
-                    if 'CIDEr' in lang_stats:
-                        optimizer.scheduler_step(-lang_stats['CIDEr'])
+                        break
+
+                eval_done = False
+
+                # 设置学习参数
+                if epoch_done:
+                    # Transformer相关
+                    if not opt.noamopt and not opt.reduce_on_plateau:
+                        if epoch > opt.learning_rate_decay_start >= 0:
+                            frac = (epoch - opt.learning_rate_decay_start) // opt.learning_rate_decay_every
+                            decay_factor = opt.learning_rate_decay_rate ** frac
+                            opt.current_lr = opt.learning_rate * decay_factor
+                        else:
+                            opt.current_lr = opt.learning_rate
+                        utils.set_lr(optimizer, opt.current_lr)
+
+                    # scheduled sampling
+                    if epoch > opt.scheduled_sampling_start >= 0:
+                        frac = (epoch - opt.scheduled_sampling_start) // opt.scheduled_sampling_increase_every
+                        opt.ss_prob = min(opt.scheduled_sampling_increase_prob * frac, opt.scheduled_sampling_max_prob)
+                        model.ss_prob = opt.ss_prob
+
+                    # SCST
+                    if opt.self_critical_after != -1 and epoch >= opt.self_critical_after:
+                        sc_flag = True
+                        init_scorer(opt.cached_tokens)
                     else:
-                        optimizer.scheduler_step(val_loss)
-                # Write validation result into summary
-                tb_summary_writer.add_scalar('validation loss', val_loss, iteration)
-                if lang_stats is not None:
-                    for k,v in lang_stats.items():
-                        tb_summary_writer.add_scalar(k, v, iteration)
-                histories['val_result_history'][iteration] = {'loss': val_loss, 'lang_stats': lang_stats, 'predictions': predictions}
+                        sc_flag = False
 
-                # Save model if is improving on validation result
-                if opt.language_eval == 1:
-                    current_score = lang_stats['CIDEr']
+                    # 结构损失
+                    if opt.structure_after != -1 and epoch >= opt.structure_after:
+                        struc_flag = True
+                        init_scorer(opt.cached_tokens)
+                    else:
+                        struc_flag = False
+
+                    epoch_done = False
+
+                # start = time.time()
+                # Transformer Warmup
+                if opt.use_warmup and (iteration < opt.noamopt_warmup):
+                    opt.current_lr = opt.learning_rate * (iteration + 1) / opt.noamopt_warmup
+                    utils.set_lr(optimizer, opt.current_lr)
+
+                data = loader.get_batch('base_train')
+                # print('\r Read data:', time.time() - start, end="")
+
+                torch.cuda.synchronize()
+                start = time.time()
+
+                tmp = [data['fc_feats'], data['att_feats'], data['labels'], data['masks'], data['att_masks']]
+                tmp = [_ if _ is None else _.cuda() for _ in tmp]
+                fc_feats, att_feats, labels, masks, att_masks = tmp
+
+                optimizer.zero_grad()
+                model_out = dp_lw_model(fc_feats, att_feats, labels, masks, att_masks, data['gts'], torch.arange(0, len(data['gts'])), sc_flag, struc_flag)
+
+                loss = model_out['loss'].mean()
+
+                loss.backward()
+
+                # 梯度截断
+                if opt.grad_clip_value != 0:
+                    getattr(torch.nn.utils, 'clip_grad_{}_'.format(opt.grad_clip_mode))(model.parameters(), opt.grad_clip_value)
+
+                optimizer.step()
+
+                train_loss = loss.item()
+                torch.cuda.synchronize()
+                end = time.time()
+
+                # 输出
+                if struc_flag:
+                    print("iter {} (epoch {}), train_loss = {:.3f}, lm_loss = {:.3f}, struc_loss = {:.3f}, time/batch = {:.3f}" \
+                          .format(iteration, epoch, train_loss, model_out['lm_loss'].mean().item(), model_out['struc_loss'].mean().item(), end - start))
+                elif not sc_flag:
+                    print("iter {} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}" \
+                          .format(iteration, epoch, train_loss, end - start))
                 else:
-                    current_score = - val_loss
+                    print("iter {} (epoch {}), avg_reward = {:.3f}, time/batch = {:.3f}" \
+                          .format(iteration, epoch, model_out['reward'].mean(), end - start))
 
-                best_flag = False
+                # 更新迭代计数器，如果到达epoch边界，需要调整一些参数
+                iteration += 1
+                if data['bounds']['wrapped']:
+                    epoch += 1
+                    epoch_done = True
 
-                if best_val_score is None or current_score > best_val_score:
-                    best_val_score = current_score
-                    best_flag = True
+                # 将训练结构写入到日志中
+                if iteration % opt.losses_log_every == 0:
+                    tb_summary_writer.add_scalar('train_loss', train_loss, iteration)
+                    if opt.noamopt:
+                        opt.current_lr = optimizer.rate()
+                    elif opt.reduce_on_plateau:
+                        opt.current_lr = optimizer.current_lr
+                    tb_summary_writer.add_scalar('learning_rate', opt.current_lr, iteration)
+                    tb_summary_writer.add_scalar('scheduled_sampling_prob', model.ss_prob, iteration)
+                    if sc_flag:
+                        tb_summary_writer.add_scalar('avg_reward', model_out['reward'].mean(), iteration)
+                    elif struc_flag:
+                        tb_summary_writer.add_scalar('lm_loss', model_out['lm_loss'].mean().item(), iteration)
+                        tb_summary_writer.add_scalar('struc_loss', model_out['struc_loss'].mean().item(), iteration)
+                        tb_summary_writer.add_scalar('reward', model_out['reward'].mean().item(), iteration)
+                        tb_summary_writer.add_scalar('reward_var', model_out['reward'].var(1).mean(), iteration)
 
-                # Dump miscalleous informations
-                infos['best_val_score'] = best_val_score
+                    histories['loss_history'][iteration] = train_loss if not sc_flag else model_out['reward'].mean()
+                    histories['lr_history'][iteration] = opt.current_lr
+                    histories['ss_prob_history'][iteration] = model.ss_prob
 
-                utils.save_checkpoint(opt, model, infos, optimizer, histories)
-                if opt.save_history_ckpt:
-                    utils.save_checkpoint(opt, model, infos, optimizer,
-                        append=str(epoch) if opt.save_every_epoch else str(iteration))
+                # 信息更新
+                infos['iter'] = iteration
+                infos['epoch'] = epoch
+                infos['loader_state_dict'] = loader.state_dict()
 
-                if best_flag:
-                    utils.save_checkpoint(opt, model, infos, optimizer, append='best')
+                # 根据需要，在两个模式下评估模型
+                if (iteration % opt.save_checkpoint_every == 0 and not opt.save_every_epoch) or (epoch_done and opt.save_every_epoch):
+                    eval_kwargs = {'split': 'base_val', 'dataset': opt.input_json}
+                    eval_kwargs.update(vars(opt))
+                    val_loss, predictions, lang_stats = eval_utils.eval_split(dp_model, lw_model.crit, loader, eval_kwargs)
 
-    except (RuntimeError, KeyboardInterrupt):
-        print('Save ckpt on exception ...')
-        utils.save_checkpoint(opt, model, infos, optimizer)
-        print('Save ckpt done.')
-        stack_trace = traceback.format_exc()
-        print(stack_trace)
+                    if opt.reduce_on_plateau:
+                        if 'CIDEr' in lang_stats:
+                            optimizer.scheduler_step(-lang_stats['CIDEr'])
+                        else:
+                            optimizer.scheduler_step(val_loss)
+
+                    # 将评估结果写入日志
+                    tb_summary_writer.add_scalar('validation loss', val_loss, iteration)
+                    if lang_stats is not None:
+                        for k, v in lang_stats.items():
+                            tb_summary_writer.add_scalar(k, v, iteration)
+
+                    histories['val_result_history'][iteration] = {'loss': val_loss, 'lang_stats': lang_stats, 'predictions': predictions}
+
+                    # 根据CIDEr指标选择最佳模型
+                    if opt.language_eval == 1:
+                        current_score = lang_stats['CIDEr']
+                    else:
+                        current_score = - val_loss
+
+                    best_flag = False
+
+                    if best_val_score is None or current_score > best_val_score:
+                        best_val_score = current_score
+                        best_flag = True
+
+                    infos['best_val_score'] = best_val_score
+
+                    utils.save_checkpoint(opt, model, infos, optimizer, histories)
+
+                    if opt.save_history_ckpt:
+                        utils.save_checkpoint(opt, model, infos, optimizer, append=str(epoch) if opt.save_every_epoch else str(iteration))
+
+                    if best_flag:
+                        utils.save_checkpoint(opt, model, infos, optimizer, append='best')
+
+                    eval_done = True
+
+        except (RuntimeError, KeyboardInterrupt):
+            print('Save ckpt on exception ...')
+            utils.save_checkpoint(opt, model, infos, optimizer)
+            print('Save ckpt done.')
+            stack_trace = traceback.format_exc()
+            print(stack_trace)
+
+        infos['stage'] = 2
+
+    # 微调训练
+
 
 
 opt = opts.parse_opt()
