@@ -173,10 +173,26 @@ class AttModel(CaptionModel):
         xt = self.embed(it)
 
         output, state = self.core(xt, fc_feats, att_feats, p_att_feats, state, att_masks)
-        if output_logsoftmax:
+        # if output_logsoftmax:
+        #     logprobs = F.log_softmax(self.logit(output), dim=1)
+        # else:
+        #     logprobs = self.logit(output)
+
+        if self.stage == 1:
+            # 传统训练阶段，使用softmax
             logprobs = F.log_softmax(self.logit(output), dim=1)
         else:
-            logprobs = self.logit(output)
+            # finetune阶段，使用cosine similarity
+            output_norm = torch.norm(output, p=2, dim=1).unsqueeze(1).expand_as(output)
+            output_normalized = output.div(output_norm + 1e-5)
+
+            weight_norm = torch.norm(self.logit.weight.data, p=2, dim=1).unsqueeze(1).expand_as(self.logit.weight.data)
+            self.logit.weight.data = self.logit.weight.data.div(weight_norm + 1e-5)
+
+            sim_cosine = self.logit(output_normalized)  # 确实有一些问题，但是这里暂时参考原始实现
+            sim_final = self.scale * sim_cosine
+
+            logprobs = F.log_softmax(sim_final, dim=1)
 
         return logprobs, state
 

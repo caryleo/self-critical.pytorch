@@ -188,7 +188,11 @@ class Dataset(data.Dataset):
         self.dict_index_concept_to_list_index_image_test = self.info['dict_index_concept_to_list_index_image_test']
 
         # 划分处理
-        self.split_ix = {'base_train': [], 'base_val': [], 'base_test': [], 'support': [], 'test': []}
+        if opt.train_only == 0:
+            self.split_ix = {'base_train': [], 'base_val': [], 'base_test': [], 'test': []}
+        else:
+            self.split_ix = {'base_train': [], 'base_val': [], 'base_test': [], 'support': [], 'test': []}
+
         for ix in range(len(self.info['list_images'])):
             img = self.info['list_images'][ix]
             if not 'split' in img:
@@ -202,12 +206,12 @@ class Dataset(data.Dataset):
             elif img['split'] == 'base_test':
                 self.split_ix['base_test'].append(ix)
 
-        # 修改了train_only的策略，置1时，将support集中的样本汇入到训练集中
+        # 修改了train_only的策略，置0时，将support集中的样本汇入到训练集中
         if opt.train_only == 0:
             for ix_concept, ix_images in self.dict_index_concept_to_list_index_image_support.items():
                 for ix in ix_images:
                     if ix not in self.split_ix['base_train']:
-                        self.split_ix['base_test'].append(ix)
+                        self.split_ix['base_train'].append(ix)
         else:
             for ix_concept, ix_images in self.dict_index_concept_to_list_index_image_support.items():
                 for ix in ix_images:
@@ -388,6 +392,7 @@ class DataLoader:
     def __init__(self, opt):
         self.opt = opt
         self.batch_size = self.opt.batch_size
+        self.batch_size_finetune = self.opt.batch_size_finetune
         self.dataset = Dataset(opt)
 
         self.loaders, self.iters = {}, {}
@@ -429,10 +434,10 @@ class DataLoader:
         if 'support' in self.dataset.split_ix:
             sampler_support = MySampler(self.dataset.split_ix['support'], shuffle=True, wrap=True, dual=True)
             self.loaders['support'] = data.DataLoader(dataset=self.dataset,
-                                                      batch_size=self.batch_size,
+                                                      batch_size=self.batch_size_finetune,
                                                       sampler=sampler_support,
                                                       pin_memory=True,
-                                                      num_workers=4,
+                                                      num_workers=1,
                                                       collate_fn=lambda x: self.dataset.collate_func(x, 'support'),
                                                       drop_last=False)
             self.iters['support'] = iter(self.loaders['support'])
@@ -440,10 +445,10 @@ class DataLoader:
         # test
         sampler_test = MySampler(self.dataset.split_ix['test'], shuffle=False, wrap=False, dual=True)
         self.loaders['test'] = data.DataLoader(dataset=self.dataset,
-                                               batch_size=self.batch_size,
+                                               batch_size=self.batch_size_finetune,
                                                sampler=sampler_test,
                                                pin_memory=True,
-                                               num_workers=4,
+                                               num_workers=1,
                                                collate_fn=lambda x: self.dataset.collate_func(x, 'test'),
                                                drop_last=False)
         self.iters['test'] = iter(self.loaders['test'])
@@ -476,6 +481,10 @@ class DataLoader:
     @property
     def seq_length(self):
         return self.get_seq_length()
+
+    @property
+    def concept_novel(self):
+        return self.dataset.concept_novel
 
     def state_dict(self):
         def get_prefetch_num(split):

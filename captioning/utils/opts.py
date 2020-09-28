@@ -79,6 +79,8 @@ def parse_opt():
                         help='number of epochs for finetune training')
     parser.add_argument('--batch_size', type=int, default=16,
                     help='minibatch size')
+    parser.add_argument('--batch_size_finetune', type=int, default=16,
+                        help='minibatch size for finetune')
     parser.add_argument('--grad_clip_mode', type=str, default='value',
                     help='value or norm')
     parser.add_argument('--grad_clip_value', type=float, default=0.1,
@@ -96,14 +98,22 @@ def parse_opt():
     #Optimization: for the Language Model
     parser.add_argument('--optim', type=str, default='adam',
                     help='what update to use? rmsprop|sgd|sgdmom|adagrad|adam|adamw')
-    parser.add_argument('--learning_rate', type=float, default=4e-4,
-                    help='learning rate')
+    parser.add_argument('--learning_rate_base', type=float, default=4e-4,
+                    help='learning rate for base training')
+    parser.add_argument('--learning_rate_finetune', type=float, default=4e-4,
+                        help='learning rate for finetuning')
     parser.add_argument('--learning_rate_decay_start', type=int, default=-1, 
                     help='at what iteration to start decaying learning rate? (-1 = dont) (in epoch)')
     parser.add_argument('--learning_rate_decay_every', type=int, default=3, 
                     help='every how many iterations thereafter to drop LR?(in epoch)')
     parser.add_argument('--learning_rate_decay_rate', type=float, default=0.8, 
                     help='every how many iterations thereafter to drop LR?(in epoch)')
+    parser.add_argument('--learning_rate_decay_start_finetune', type=int, default=-1,
+                        help='at what iteration to start decaying learning rate? (-1 = dont) (in epoch) for finetuning')
+    parser.add_argument('--learning_rate_decay_every_finetune', type=int, default=3,
+                        help='every how many iterations thereafter to drop LR?(in epoch) for finetuning')
+    parser.add_argument('--learning_rate_decay_rate_finetune', type=float, default=0.8,
+                        help='every how many iterations thereafter to drop LR?(in epoch) for finetuning')
     parser.add_argument('--optim_alpha', type=float, default=0.9,
                     help='alpha for adam')
     parser.add_argument('--optim_beta', type=float, default=0.999,
@@ -143,6 +153,15 @@ def parse_opt():
     parser.add_argument('--scheduled_sampling_max_prob', type=float, default=0.25, 
                     help='Maximum scheduled sampling prob.')
 
+    parser.add_argument('--scheduled_sampling_start_finetune', type=int, default=-1,
+                        help='at what iteration to start decay gt probability for finetune')
+    parser.add_argument('--scheduled_sampling_increase_every_finetune', type=int, default=5,
+                        help='every how many iterations thereafter to gt probability for finetune')
+    parser.add_argument('--scheduled_sampling_increase_prob_finetune', type=float, default=0.05,
+                        help='How much to update the prob for finetune')
+    parser.add_argument('--scheduled_sampling_max_prob_finetune', type=float, default=0.25,
+                        help='Maximum scheduled sampling prob for finetune')
+
 
     # Evaluation/Checkpointing
     parser.add_argument('--val_images_use', type=int, default=3200,
@@ -157,6 +176,10 @@ def parse_opt():
                     help='directory to store checkpointed models')
     parser.add_argument('--language_eval', type=int, default=0,
                     help='Evaluate language as well (1 = yes, 0 = no)? BLEU/CIDEr/METEOR/ROUGE_L? requires coco-caption code from Github.')
+    parser.add_argument('--mention_eval', type=int, default=0,
+                        help='Evaluate concept mention precision as well (1 = yes, 0 = no)?')
+    parser.add_argument('--mention_eval_mode', type=str, choices=['class', 'subset', 'subset_match'],
+                        help='evaluate mode for mention evaluation')
     parser.add_argument('--losses_log_every', type=int, default=25,
                     help='How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')       
     parser.add_argument('--load_best_score', type=int, default=1,
