@@ -10,7 +10,7 @@ learning_rate_finetune: 0.0005
 scheduled_sampling_start: 0
 scheduled_sampling_start_finetune: 0
 # checkpoint_path: $ckpt_path
-# $start_from
+#start_from: logs/baseline_updown_0928_3
 language_eval: 1
 save_checkpoint_every: 3000
 val_images_use: 5000
@@ -26,6 +26,6 @@ batch_size_finetune: 10
 learning_rate_decay_start: 0
 learning_rate_decay_start_finetune: 0
 max_epochs_base: 30
-max_epochs_finetune: 20
+max_epochs_finetune: 30
 
 train_only: 1

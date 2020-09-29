@@ -222,7 +222,7 @@ class Dataset(data.Dataset):
                 self.split_ix['test'].append({'ix_concept': int(ix_concept), 'ix_image': ix})
 
         for key, list_item in self.split_ix.items():
-            print('assigned {:d} images to split {}'.format(len(self.split_ix[key]), key))
+            print('DataLoader:', 'assigned {:d} images to split {}'.format(len(self.split_ix[key]), key))
 
         # print('assigned %d images to split base_train' %len(self.split_ix['base_train']))
         # print('assigned %d images to split base_val' %len(self.split_ix['base_val']))

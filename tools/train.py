@@ -69,6 +69,7 @@ def train(opt):
             need_be_same = ["caption_model", "rnn_type", "rnn_size", "num_layers"]
             for checkme in need_be_same:
                 assert getattr(saved_model_opt, checkme) == getattr(opt, checkme), "Command line argument and saved model disagree on '%s' " % checkme
+
     infos['opt'] = opt
 
     #########################
@@ -352,11 +353,12 @@ def train(opt):
             print('Save ckpt done.')
             stack_trace = traceback.format_exc()
             print(stack_trace)
+            os._exit(0)
 
         infos['stage'] = 2
 
     # dummy配置下，不进行微调
-    if opt.train_only == 0:
+    if opt.train_only == 1:
         # 微调训练
         infos['stage'] = 2
         epoch_done = True
@@ -389,6 +391,16 @@ def train(opt):
 
         # 因为计数器没有清零，所以这里是直接加上去
         max_epochs_all = opt.max_epochs_base + opt.max_epochs_finetune
+
+        # 提前准备：相关学习参数是否跟随
+        if opt.learning_rate_decay_start_finetune < 0:
+            opt.learning_rate_decay_start_finetune = opt.learning_rate_decay_start - opt.max_epochs_base
+
+        if opt.learning_rate_finetune < 0:
+            opt.learning_rate_finetune = opt.learning_rate_base
+
+        if opt.scheduled_sampling_start_finetune < 0:
+            opt.scheduled_sampling_start_finetune = opt.scheduled_sampling_start - opt.max_epochs_base
 
         try:
             while True:
@@ -519,6 +531,7 @@ def train(opt):
             print('Save ckpt done.')
             stack_trace = traceback.format_exc()
             print(stack_trace)
+            os._exit(0)
 
 
 opt = opts.parse_opt()
