@@ -40,6 +40,9 @@ def parse_opt():
     parser.add_argument('--cached_tokens', type=str, default='coco-train-idxs',
                     help='Cached token file for calculating cider score during self critical training.')
 
+    parser.add_argument('--finetune_only', type=int, default=0,
+                        help='just finetune existing model')
+
     # Model settings
     parser.add_argument('--caption_model', type=str, default="show_tell",
                     help='show_tell, show_attend_tell, all_img, fc, att2in, att2in2, att2all2, adaatt, adaattmo, updown, stackatt, denseatt, transformer')
@@ -59,6 +62,8 @@ def parse_opt():
                     help='2048 for resnet, 512 for vgg')
     parser.add_argument('--logit_layers', type=int, default=1,
                     help='number of layers in the RNN')
+    parser.add_argument('--scale', type=int, default=20,
+                        help='scalar for cosine similarity')
 
 
     parser.add_argument('--use_bn', type=int, default=0,
@@ -178,7 +183,7 @@ def parse_opt():
                     help='Evaluate language as well (1 = yes, 0 = no)? BLEU/CIDEr/METEOR/ROUGE_L? requires coco-caption code from Github.')
     parser.add_argument('--mention_eval', type=int, default=0,
                         help='Evaluate concept mention precision as well (1 = yes, 0 = no)?')
-    parser.add_argument('--mention_eval_mode', type=str, choices=['class', 'subset', 'subset_match'],
+    parser.add_argument('--mention_eval_mode', type=str, choices=['class', 'subset', 'subset_match'], default='class',
                         help='evaluate mode for mention evaluation')
     parser.add_argument('--losses_log_every', type=int, default=25,
                     help='How often do we snapshot losses, for inclusion in the progress dump? (0 = disable)')       
@@ -293,10 +298,14 @@ def add_eval_options(parser):
     parser.add_argument('--batch_size', type=int, default=0,
                     help='if > 0 then overrule, otherwise load from checkpoint.')
     parser.add_argument('--num_images', type=int, default=-1,
-                    help='how many images to use when periodically evaluating the loss? (-1 = all)')
+                    help='how many images to use when persiodically evaluating the loss? (-1 = all)')
     parser.add_argument('--language_eval', type=int, default=0,
                     help='Evaluate language as well (1 = yes, 0 = no)? BLEU/CIDEr/METEOR/ROUGE_L? requires coco-caption code from Github.')
-    parser.add_argument('--dump_images', type=int, default=1,
+    parser.add_argument('--mention_eval', type=int, default=0,
+                        help='Evaluate concept mention precision as well (1 = yes, 0 = no)?')
+    parser.add_argument('--mention_eval_mode', type=str, choices=['class', 'subset', 'subset_match'], default='class',
+                        help='evaluate mode for mention evaluation')
+    parser.add_argument('--dump_images', type=int, default=0,
                     help='Dump images into vis/imgs folder for vis? (1=yes,0=no)')
     parser.add_argument('--dump_json', type=int, default=1,
                     help='Dump json with predictions into vis folder? (1=yes,0=no)')

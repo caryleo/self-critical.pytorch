@@ -61,6 +61,7 @@ class AttModel(CaptionModel):
         self.fc_feat_size = opt.fc_feat_size
         self.att_feat_size = opt.att_feat_size
         self.att_hid_size = opt.att_hid_size
+        self.scale = opt.scale
 
         self.stage = 1
 
@@ -183,16 +184,18 @@ class AttModel(CaptionModel):
             logprobs = F.log_softmax(self.logit(output), dim=1)
         else:
             # finetune阶段，使用cosine similarity
-            output_norm = torch.norm(output, p=2, dim=1).unsqueeze(1).expand_as(output)
-            output_normalized = output.div(output_norm + 1e-5)
+            # output_norm = torch.norm(output, p=2, dim=1).unsqueeze(1).expand_as(output)
+            # output_normalized = output.div(output_norm + 1e-5)
+            #
+            # weight_norm = torch.norm(self.logit.weight.data, p=2, dim=1).unsqueeze(1).expand_as(self.logit.weight.data)
+            # self.logit.weight.data = self.logit.weight.data.div(weight_norm + 1e-5)
+            #
+            # sim_cosine = self.logit(output_normalized)  # 确实有一些问题，但是这里暂时参考原始实现
+            # sim_final = self.scale * sim_cosine
+            #
+            # logprobs = F.log_softmax(sim_final, dim=1)
 
-            weight_norm = torch.norm(self.logit.weight.data, p=2, dim=1).unsqueeze(1).expand_as(self.logit.weight.data)
-            self.logit.weight.data = self.logit.weight.data.div(weight_norm + 1e-5)
-
-            sim_cosine = self.logit(output_normalized)  # 确实有一些问题，但是这里暂时参考原始实现
-            sim_final = self.scale * sim_cosine
-
-            logprobs = F.log_softmax(sim_final, dim=1)
+            logprobs = F.log_softmax(self.logit(output), dim=1)
 
         return logprobs, state
 

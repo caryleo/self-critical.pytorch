@@ -91,8 +91,12 @@ def train(opt):
     model = models.setup(opt).cuda()
     del opt.vocab
 
-    if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, 'model.pth')):
-        model.load_state_dict(torch.load(os.path.join(opt.start_from, 'model.pth')))
+    if opt.finetune_only == 1:
+        if os.path.isfile(os.path.join(opt.start_from, 'model_best.pth')):
+            model.load_state_dict(torch.load(os.path.join(opt.start_from, 'model_best.pth')))
+    else:
+        if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, 'model.pth')):
+            model.load_state_dict(torch.load(os.path.join(opt.start_from, 'model.pth')))
 
     # 作者注：面向模型的loss封装，便于将loss计算独立，便于多卡时减小No.0 GPU的负载
     lw_model = LossWrapper(model, opt)
@@ -117,8 +121,12 @@ def train(opt):
     else:
         optimizer = utils.build_optimizer(model.parameters(), opt)
 
-    if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, "optimizer.pth")):
-        optimizer.load_state_dict(torch.load(os.path.join(opt.start_from, 'optimizer.pth')))
+    if opt.finetune_only == 1:
+        if os.path.isfile(os.path.join(opt.start_from, "optimizer_best.pth")):
+            optimizer.load_state_dict(torch.load(os.path.join(opt.start_from, 'optimizer_best.pth')))
+    else:
+        if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, "optimizer.pth")):
+            optimizer.load_state_dict(torch.load(os.path.join(opt.start_from, 'optimizer.pth')))
 
     #########################
     # 训练
@@ -140,7 +148,7 @@ def train(opt):
     dp_lw_model.train()
 
     # 开始训练啦！经典训练
-    if infos['stage'] == 1:
+    if infos['stage'] == 1 and opt.finetune_only != 1:
         try:
             while True:
                 # 达到最大epoch限制，跳出经典训练
@@ -151,7 +159,7 @@ def train(opt):
                         # 末尾再评估一次
                         eval_kwargs = {'split': 'base_val', 'dataset': opt.input_json}
                         eval_kwargs.update(vars(opt))
-                        val_loss, predictions, lang_stats = eval_utils.eval_split(dp_model, lw_model.crit, loader, eval_kwargs)
+                        val_loss, predictions, lang_stats, _ = eval_utils.eval_split(dp_model, lw_model.crit, loader, eval_kwargs)
 
                         if opt.reduce_on_plateau:
                             if 'CIDEr' in lang_stats:

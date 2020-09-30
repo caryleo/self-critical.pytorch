@@ -8,9 +8,9 @@ input_coco_json: data/label/label_coco_fewshot_20way_30shot_ref.json
 learning_rate: 0.0005
 learning_rate_finetune: 0.0005
 scheduled_sampling_start: 0
-scheduled_sampling_start_finetune: 0
+scheduled_sampling_start_finetune: -1
 # checkpoint_path: $ckpt_path
-#start_from: logs/baseline_updown_0928_3
+start_from: logs/baseline_updown_0928_4
 language_eval: 1
 save_checkpoint_every: 3000
 val_images_use: 5000
@@ -20,12 +20,12 @@ att_feat_size: 2048
 att_hid_size: 512
 
 train_sample_n: 5
-self_critical_after: 30
+self_critical_after: -1
 batch_size: 10
 batch_size_finetune: 10
 learning_rate_decay_start: 0
-learning_rate_decay_start_finetune: 0
-max_epochs_base: 50
+learning_rate_decay_start_finetune: -1
+max_epochs_base: 30
 max_epochs_finetune: 30
 
-train_only: 0
+train_only: 1

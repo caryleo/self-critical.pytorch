@@ -35,6 +35,8 @@ import torch.utils.data as data
 import multiprocessing
 import six
 
+from captioning.utils import opts
+
 
 class HybridLoader:
     """
@@ -486,6 +488,10 @@ class DataLoader:
     def concept_novel(self):
         return self.dataset.concept_novel
 
+    @property
+    def index_to_concept(self):
+        return self.dataset.ix_to_concept
+
     def state_dict(self):
         def get_prefetch_num(split):
             if self.loaders[split].num_workers > 0:
@@ -567,3 +573,16 @@ class MySampler(data.sampler.Sampler):
             'index_list': self._index_list,
             'iter_counter': self.iter_counter - prefetched_num
         }
+
+
+if __name__ == '__main__':
+    opt = opts.parse_opt()
+    loader = DataLoader(opt)
+
+    loader.reset_iterator('support')
+
+    for i in range(5):
+        data = loader.get_batch('support')
+
+    print(data)
+

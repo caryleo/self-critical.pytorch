@@ -315,7 +315,7 @@ def eval_split(model, crit, loader, eval_kwargs={}):
                 os.system(cmd)
 
             if verbose:
-                print('image %s: %s' % (entry['image_id'], entry['caption']))
+                print('image {}: {}'.format(entry['image_id'], entry['caption']))
 
         if sample_n > 1:
             eval_split_n(model, n_predictions, [fc_feats, att_feats, att_masks, data], eval_kwargs)
@@ -330,7 +330,7 @@ def eval_split(model, crit, loader, eval_kwargs={}):
             predictions.pop()
 
         if verbose:
-            print('evaluating validation preformance... %d/%d (%f)' % (n, ix1, loss))
+            print('evaluating validation performance... %d/%d (%f)' % (n, ix1, loss))
 
         if 0 <= num_images <= n:
             break
@@ -352,7 +352,8 @@ def eval_split(model, crit, loader, eval_kwargs={}):
         split_mention = 'test'
         loader.reset_iterator(split_mention)
 
-        list_index_concept_novel = loader.concept_novel
+        list_concept_novel = loader.concept_novel
+
         n = 0
         predictions_mention = list()
 
@@ -389,7 +390,7 @@ def eval_split(model, crit, loader, eval_kwargs={}):
             for k, sent in enumerate(sents):
                 set_concepts_prediction = set()
                 for index_token in seq[k]:
-                    if index_token in list_index_concept_novel:
+                    if model.vocab[index_token.item()] in list_concept_novel:
                         set_concepts_prediction.add(model.vocab[index_token])
 
                 entry = {'image_id': data['infos'][k]['id'],
