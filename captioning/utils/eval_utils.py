@@ -148,6 +148,7 @@ def mention_precision_eval(predictions, kwargs_eval, split):
         dict_concept_to_index_predicition = defaultdict(list)
 
         for index, prediction in enumerate(predictions):
+            print(prediction['list_concepts'], prediction['list_concepts_prediction'])
             for concept, concept_prediction in zip(prediction['list_concepts'], prediction['list_concepts_prediction']):
                 dict_concept_to_index[concept].append(index)
                 dict_concept_to_index_predicition[concept_prediction].append(index)
@@ -163,9 +164,10 @@ def mention_precision_eval(predictions, kwargs_eval, split):
             set_index = set(dict_concept_to_index[concept])
             set_index_prediction = set(dict_concept_to_index_predicition[concept])
             set_index_common = set.intersection(set_index, set_index_prediction) # 共有部分显然就是预测对的了
-            p = len(set_index_common) / len(set_index_prediction)
-            r = len(set_index_common) / len(set_index)
-            f = (p * r * 2) / (p + r)
+            print(len(set_index), len(set_index_prediction), len(set_index_common))
+            p = len(set_index_common) / len(set_index_prediction) if len(set_index_prediction) > 0 else 0
+            r = len(set_index_common) / len(set_index) if len(set_index) > 0 else 0
+            f = (p * r * 2) / (p + r) if (p + r) > 0 else 0
 
             dict_output_class = {
                 'concept': concept,
@@ -351,6 +353,7 @@ def eval_split(model, crit, loader, eval_kwargs={}):
     if mention_eval == 1:
         split_mention = 'test'
         loader.reset_iterator(split_mention)
+        num_images_mention = -1
 
         list_concept_novel = loader.concept_novel
 
@@ -390,8 +393,8 @@ def eval_split(model, crit, loader, eval_kwargs={}):
             for k, sent in enumerate(sents):
                 set_concepts_prediction = set()
                 for index_token in seq[k]:
-                    if model.vocab[index_token.item()] in list_concept_novel:
-                        set_concepts_prediction.add(model.vocab[index_token])
+                    if index_token.item() != 0 and  model.vocab[str(index_token.item())] in list_concept_novel:
+                        set_concepts_prediction.add(model.vocab[str(index_token.item())])
 
                 entry = {'image_id': data['infos'][k]['id'],
                          'caption': sent,
@@ -416,17 +419,19 @@ def eval_split(model, crit, loader, eval_kwargs={}):
 
             # ix0 = data['bounds']['it_pos_now']
             ix1 = data['bounds']['it_max']
-            if num_images != -1:
-                ix1 = min(ix1, num_images)
+            if num_images_mention != -1:
+                ix1 = min(ix1, num_images_mention)
             else:
-                num_images = ix1
+                num_images_mention = ix1
+
+            # print(ix1, num_images_mention)
             for i in range(n - ix1):
                 predictions_mention.pop()
 
             if verbose:
                 print('evaluating mention preformance... %d/%d (%f)' % (n, ix1, loss))
 
-            if 0 <= num_images <= n:
+            if 0 <= num_images_mention <= n:
                 break
 
         torch.save((predictions, n_predictions), os.path.join('eval_results/', 'saved_pred_' + eval_kwargs['id'] + '_' + split_mention + '.pth'))
